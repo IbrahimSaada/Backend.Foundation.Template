@@ -27,16 +27,35 @@ Backend.Foundation.Template.sln
 ## 3) Dependency Direction (Clean Architecture)
 
 ```mermaid
-flowchart LR
-    Host["Host/API"] --> Application
+flowchart TB
+    Host["Host/API"]
+
+    subgraph Layer2[" "]
+        direction LR
+        Application["Application"]
+        Persistence["Persistence"]
+    end
+
+    GenericRepo["GenericRepo"]
+
+    subgraph Core[" "]
+        direction LR
+        Abstractions["Abstractions"]
+        Domain["Domain"]
+    end
+
+    Host --> Application
     Host --> Persistence
+
     Application --> Abstractions
     Application --> Domain
+
+    Persistence --> GenericRepo
+    Persistence --> Abstractions
+    Persistence --> Domain
+
     GenericRepo --> Abstractions
     GenericRepo --> Domain
-    Persistence --> GenericRepo
-    Persistence --> Domain
-    Persistence --> Abstractions
 ```
 
 Rules:
