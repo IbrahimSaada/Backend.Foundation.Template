@@ -1,0 +1,7 @@
+﻿@Backend.Foundation.Template_HostAddress = http://localhost:5253
+
+### System health/time
+GET {{Backend.Foundation.Template_HostAddress}}/api/system/time
+Accept: application/json
+
+###
