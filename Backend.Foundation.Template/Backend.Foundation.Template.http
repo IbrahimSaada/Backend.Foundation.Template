@@ -5,3 +5,15 @@ GET {{Backend.Foundation.Template_HostAddress}}/api/system/time
 Accept: application/json
 
 ###
+
+### System health/time (bypass cache)
+GET {{Backend.Foundation.Template_HostAddress}}/api/system/time?bypassCache=true
+Accept: application/json
+
+###
+
+### Invalidate server time cache (requires system.time.cache.invalidate permission)
+POST {{Backend.Foundation.Template_HostAddress}}/api/system/time/cache/invalidate
+Accept: application/json
+
+###

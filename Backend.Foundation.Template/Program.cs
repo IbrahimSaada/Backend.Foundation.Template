@@ -2,6 +2,7 @@
 using Backend.Foundation.Template.Abstractions.Persistence;
 using Backend.Foundation.Template.Application;
 using Backend.Foundation.Template.Infrastructure;
+using Backend.Foundation.Template.Infrastructure.Caching;
 using Backend.Foundation.Template.Persistence;
 using Backend.Foundation.Template.Security.DependencyInjection;
 using Microsoft.OpenApi.Models;
@@ -46,6 +47,7 @@ builder.Services.AddSwaggerGen(options =>
 
 builder.Services.AddApplication();
 builder.Services.AddTemplateSecurity(builder.Configuration);
+builder.Services.AddTemplateCaching(builder.Configuration);
 
 // Fallback infrastructure so template runs even when persistence provider is not configured yet.
 builder.Services.AddSingleton<IClock, SystemClock>();
@@ -69,6 +71,8 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
+app.MapHealthChecks("/health/live");
+app.MapHealthChecks("/health/ready");
 app.MapControllers();
 
 app.Run();

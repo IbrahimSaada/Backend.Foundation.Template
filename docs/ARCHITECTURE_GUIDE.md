@@ -352,10 +352,111 @@ curl -X POST "http://localhost:8088/realms/foundation-template/protocol/openid-c
   - no token -> `401`
   - `user.test` token -> `200` (has `system.time.read`)
 
+## 11.2) Redis Foundation (Phase 1)
+
+The template includes a provider-agnostic Redis baseline designed for long-term scale.
+
+Abstractions (`Backend.Foundation.Template.Abstractions/Caching`):
+- `ICacheStore`
+- `ICacheKeyFactory`
+- `ICacheSerializer`
+- `IDistributedLock`
+- `IIdempotencyStore`
+
+Infrastructure implementations (`Backend.Foundation.Template/Infrastructure/Caching`):
+- Redis-backed:
+  - `RedisCacheStore`
+  - `RedisDistributedLock`
+  - `RedisIdempotencyStore`
+  - `RedisHealthCheck`
+- Fallback when Redis disabled:
+  - `NoOpCacheStore`
+  - `NoOpDistributedLock`
+  - `NoOpIdempotencyStore`
+
+Config section (`Redis`):
+- `Enabled`
+- `ConnectionString`
+- `InstancePrefix`
+- `DefaultTtlSeconds`
+- `ConnectTimeoutMs`
+
+Registration:
+- `Program.cs` uses `AddTemplateCaching(builder.Configuration)`.
+- Health endpoints:
+  - `GET /health/live`
+  - `GET /health/ready`
+
+Local Redis compose:
+- `docker/redis/docker-compose.yml`
+- start:
+```bash
+docker compose -f docker/redis/docker-compose.yml up -d
+```
+
 Future extension path:
-1. add Keycloak adapter configuration
-2. add Redis-backed permission cache + invalidation
-3. move role-permission mapping source to DB/config service if needed
+1. add Redis-backed permission cache + invalidation
+2. move role-permission mapping source to DB/config service if needed
+
+## 11.3) Redis Application Pipeline (Phase 2)
+
+Phase 2 adds application-level caching behavior and explicit invalidation contracts.
+
+Contracts (`Backend.Foundation.Template.Application/Contracts/Caching`):
+- `ICacheableQuery<TResponse>`
+  - opt-in query caching contract
+  - exposes `CacheKey`, optional `CacheCategory`, optional TTL, `BypassCache`
+- `IInvalidatesCache`
+  - command-side explicit invalidation contract
+  - exposes `CacheInvalidationItems` (`Category`, `Key`)
+
+Behaviors (`Backend.Foundation.Template.Application/Behaviors`):
+- `QueryCachingBehavior<TRequest, TResponse>`
+  - applies only when request implements `ICacheableQuery<TResponse>`
+  - reads from cache first, then executes handler on miss, caches successful results
+- `CacheInvalidationBehavior<TRequest, TResponse>`
+  - applies only when request is a command and implements `IInvalidatesCache`
+  - invalidates explicit keys only after successful command pipeline result
+
+Pipeline order:
+- `ValidationBehavior`
+- `QueryCachingBehavior`
+- `CacheInvalidationBehavior`
+- `UnitOfWorkBehavior`
+
+Important behavior detail:
+- invalidation runs outside unit-of-work commit block because `CacheInvalidationBehavior` wraps `UnitOfWorkBehavior`.
+- this means cache is cleared only after commit-success path returns.
+
+Usage example:
+```csharp
+public sealed record GetProductByIdQuery(Guid Id)
+    : ICacheableQuery<ProductDto>
+{
+    public string CacheKey => $"product:{Id}";
+    public TimeSpan? AbsoluteExpirationRelativeToNow => TimeSpan.FromMinutes(5);
+}
+
+public sealed record UpdateProductCommand(Guid Id, string Name)
+    : ICommand<Unit>, IInvalidatesCache
+{
+    public IReadOnlyCollection<CacheInvalidationItem> CacheInvalidationItems =>
+        new[]
+        {
+            new CacheInvalidationItem(CacheCategories.Query, $"product:{Id}")
+        };
+}
+```
+
+Concrete sample in template:
+- `GET /api/system/time` uses `GetServerTimeQuery : ICacheableQuery<DateTime>`
+  - cache key: `query:system.time.utc` (with instance prefix)
+  - TTL: 30 seconds
+  - optional query parameter `bypassCache=true`
+- `POST /api/system/time/cache/invalidate` uses
+  - `InvalidateServerTimeCacheCommand : ICommand<Unit>, IInvalidatesCache`
+  - invalidates `query:system.time.utc`
+  - requires permission `system.time.cache.invalidate`
 
 ## 12) Current API Surface
 
