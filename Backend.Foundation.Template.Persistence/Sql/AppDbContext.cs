@@ -1,5 +1,4 @@
-﻿using Backend.Foundation.Template.Domain.Products;
-using Microsoft.EntityFrameworkCore;
+﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 
 namespace Backend.Foundation.Template.Persistence.Sql;
@@ -16,7 +15,6 @@ public sealed class AppDbContext : DbContext
     {
     }
 
-    public DbSet<Product> Products => Set<Product>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -234,14 +234,51 @@ Runtime registration:
 - Mongo provider => Mongo generic repo.
 - No provider => no-op UoW fallback.
 
-## 11) Current API Surface
+## 11) Security Foundation (Provider-Agnostic)
+
+The template now includes a provider-agnostic authentication/authorization baseline:
+- `Abstractions/Security`
+  - `ICurrentUser`
+  - `IPermissionEvaluator`
+  - `PermissionPolicyName` (`perm:<permission>`)
+- API security infrastructure:
+  - JWT bearer wiring (config-driven)
+  - dynamic permission policy provider
+  - permission authorization handler
+  - `RequirePermissionAttribute`
+
+Key design points:
+- no Keycloak types in `Application` or `Domain`
+- permissions are the authorization unit (roles can map to permissions)
+- Keycloak-specific role shape (`realm_access.roles`) is handled in API mapping, not business logic
+
+Config sections:
+- `Authentication`
+  - `Enabled`, `Authority`, `Audiences`, validation flags
+- `AuthorizationMapping`
+  - role claim types
+  - permission claim types
+  - optional static `RolePermissions` map
+
+Usage example (when auth is enabled):
+```csharp
+[RequirePermission("products.create")]
+public async Task<IActionResult> Create(...)
+```
+
+Future extension path:
+1. add Keycloak adapter configuration
+2. add Redis-backed permission cache + invalidation
+3. move role-permission mapping source to DB/config service if needed
+
+## 12) Current API Surface
 
 System:
 - `GET /api/system/time`
 
 Business endpoints should be added as project-specific modules.
 
-## 12) How to Add a New Module
+## 13) How to Add a New Module
 
 1. Domain
 - add entities/value objects
@@ -265,7 +302,7 @@ Business endpoints should be added as project-specific modules.
 5. Optional tests
 - add unit/integration test projects per project needs
 
-## 13) Useful Commands
+## 14) Useful Commands
 
 Build:
 ```bash
@@ -291,7 +328,7 @@ dotnet ef database update \
   --context AppDbContext
 ```
 
-## 14) Architecture Guardrails
+## 15) Architecture Guardrails
 
 - Keep transport models in Host, not Domain.
 - Keep persistence details in Persistence, not Application.

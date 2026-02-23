@@ -3,6 +3,7 @@ using Backend.Foundation.Template.Abstractions.Persistence;
 using Backend.Foundation.Template.Application;
 using Backend.Foundation.Template.Infrastructure;
 using Backend.Foundation.Template.Persistence;
+using Backend.Foundation.Template.Security.DependencyInjection;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -19,6 +20,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddApplication();
+builder.Services.AddTemplateSecurity(builder.Configuration);
 
 // Fallback infrastructure so template runs even when persistence provider is not configured yet.
 builder.Services.AddSingleton<IClock, SystemClock>();
@@ -40,6 +42,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 
