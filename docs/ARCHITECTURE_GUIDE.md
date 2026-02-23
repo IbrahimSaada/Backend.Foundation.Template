@@ -164,6 +164,11 @@ For commands:
 For queries:
 - no save/no transaction commit path.
 
+Provider caveat:
+- EF provider executes real DB transactions for command pipeline writes.
+- Mongo provider currently uses immediate writes and does not provide EF-equivalent cross-operation atomic transactions by default.
+- If a use-case requires strict multi-write atomicity on Mongo, implement session-based transactions explicitly for that flow.
+
 ## 7) Audit and Soft Delete
 
 `AppDbContext` applies conventions:
@@ -234,6 +239,11 @@ Runtime registration:
 - Mongo provider => Mongo generic repo.
 - No provider => no-op UoW fallback.
 
+Secrets guidance:
+- Keep `ConnectionStrings` values as placeholders in source control.
+- Use User Secrets locally and environment variables/secret manager in CI/CD and production.
+- Design-time EF migrations should use `BACKEND_TEMPLATE_MIGRATIONS_CONNECTION` or `ConnectionStrings__Postgres`.
+
 ## 11) Security Foundation (Provider-Agnostic)
 
 The template now includes a provider-agnostic authentication/authorization baseline:
@@ -256,6 +266,9 @@ Config sections:
 - `Authentication`
   - `Enabled`, `Authority`, `Audiences`, validation flags
 - `AuthorizationMapping`
+  - keycloak claim source names (`realm_access`, `resource_access`)
+  - include/exclude Keycloak realm roles and client roles
+  - optional allowed client list for `resource_access`
   - role claim types
   - permission claim types
   - optional static `RolePermissions` map

@@ -6,7 +6,15 @@ public sealed class AuthorizationMappingOptions
 {
     public const string SectionName = "AuthorizationMapping";
 
+    public string KeycloakRealmAccessClaimType { get; set; } = "realm_access";
+
+    public string KeycloakResourceAccessClaimType { get; set; } = "resource_access";
+
     public bool IncludeKeycloakRealmRoles { get; set; } = true;
+
+    public bool IncludeKeycloakClientRoles { get; set; } = true;
+
+    public List<string> KeycloakClientRoleClients { get; set; } = new();
 
     public List<string> RoleClaimTypes { get; set; } = new()
     {

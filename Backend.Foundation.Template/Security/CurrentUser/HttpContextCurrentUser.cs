@@ -81,13 +81,24 @@ internal sealed class HttpContextCurrentUser : ICurrentUser
             }
         }
 
+        AppendKeycloakRealmRoles(principal, roles);
+        AppendKeycloakClientRoles(principal, roles);
+
+        return roles;
+    }
+
+    private void AppendKeycloakRealmRoles(ClaimsPrincipal principal, HashSet<string> roles)
+    {
         if (!_mappingOptions.IncludeKeycloakRealmRoles)
         {
-            return roles;
+            return;
         }
 
         foreach (var claim in principal.Claims.Where(c =>
-                     string.Equals(c.Type, "realm_access", StringComparison.OrdinalIgnoreCase)))
+                     string.Equals(
+                         c.Type,
+                         _mappingOptions.KeycloakRealmAccessClaimType,
+                         StringComparison.OrdinalIgnoreCase)))
         {
             if (string.IsNullOrWhiteSpace(claim.Value))
             {
@@ -117,8 +128,69 @@ internal sealed class HttpContextCurrentUser : ICurrentUser
                 _logger.LogWarning(ex, "Failed to parse realm_access roles claim.");
             }
         }
+    }
 
-        return roles;
+    private void AppendKeycloakClientRoles(ClaimsPrincipal principal, HashSet<string> roles)
+    {
+        if (!_mappingOptions.IncludeKeycloakClientRoles)
+        {
+            return;
+        }
+
+        var allowedClients = _mappingOptions.KeycloakClientRoleClients
+            .Where(x => !string.IsNullOrWhiteSpace(x))
+            .Select(x => x.Trim())
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        var allowAllClients = allowedClients.Count == 0;
+
+        foreach (var claim in principal.Claims.Where(c =>
+                     string.Equals(
+                         c.Type,
+                         _mappingOptions.KeycloakResourceAccessClaimType,
+                         StringComparison.OrdinalIgnoreCase)))
+        {
+            if (string.IsNullOrWhiteSpace(claim.Value))
+            {
+                continue;
+            }
+
+            try
+            {
+                using var document = JsonDocument.Parse(claim.Value);
+                if (document.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                foreach (var clientNode in document.RootElement.EnumerateObject())
+                {
+                    if (!allowAllClients && !allowedClients.Contains(clientNode.Name))
+                    {
+                        continue;
+                    }
+
+                    if (!clientNode.Value.TryGetProperty("roles", out var rolesNode) ||
+                        rolesNode.ValueKind != JsonValueKind.Array)
+                    {
+                        continue;
+                    }
+
+                    foreach (var roleNode in rolesNode.EnumerateArray())
+                    {
+                        var role = roleNode.GetString();
+                        if (!string.IsNullOrWhiteSpace(role))
+                        {
+                            roles.Add(role.Trim());
+                        }
+                    }
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse resource_access roles claim.");
+            }
+        }
     }
 
     private HashSet<string> ExtractPermissions(ClaimsPrincipal principal)
