@@ -1,16 +1,16 @@
 using Backend.Foundation.Template.Abstractions.Results;
 using Backend.Foundation.Template.Application.Contracts.Errors;
 using Backend.Foundation.Template.Application.Contracts.Requests;
-using Backend.Foundation.Template.Application.Contracts.Validation;
+using FluentValidation;
 
 namespace Backend.Foundation.Template.Application.Behaviors;
 
 public sealed class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<TRequest, TResponse>
     where TRequest : IRequest<TResponse>
 {
-    private readonly IReadOnlyList<IRequestValidator<TRequest>> _validators;
+    private readonly IReadOnlyList<IValidator<TRequest>> _validators;
 
-    public ValidationBehavior(IEnumerable<IRequestValidator<TRequest>> validators)
+    public ValidationBehavior(IEnumerable<IValidator<TRequest>> validators)
     {
         _validators = validators.ToArray();
     }
@@ -25,14 +25,15 @@ public sealed class ValidationBehavior<TRequest, TResponse> : IPipelineBehavior<
             return await next();
         }
 
-        var failures = new List<ValidationFailure>();
+        var context = new ValidationContext<TRequest>(request);
+        var failures = new List<FluentValidation.Results.ValidationFailure>();
 
         foreach (var validator in _validators)
         {
-            var result = await validator.ValidateAsync(request, ct);
-            if (!result.IsValid)
+            var validationResult = await validator.ValidateAsync(context, ct);
+            if (!validationResult.IsValid)
             {
-                failures.AddRange(result.Errors);
+                failures.AddRange(validationResult.Errors);
             }
         }
 

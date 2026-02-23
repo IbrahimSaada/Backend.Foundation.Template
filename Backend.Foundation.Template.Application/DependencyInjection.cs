@@ -1,8 +1,8 @@
-﻿using System.Reflection;
+using System.Reflection;
 using Backend.Foundation.Template.Application.Behaviors;
 using Backend.Foundation.Template.Application.Contracts.Handlers;
-using Backend.Foundation.Template.Application.Contracts.Validation;
 using Backend.Foundation.Template.Application.Dispatching;
+using FluentValidation;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Backend.Foundation.Template.Application;
@@ -16,7 +16,7 @@ public static class DependencyInjection
         var assembly = typeof(DependencyInjection).Assembly;
 
         RegisterClosedGenericImplementations(services, assembly, typeof(IRequestHandler<,>));
-        RegisterClosedGenericImplementations(services, assembly, typeof(IRequestValidator<>));
+        services.AddValidatorsFromAssembly(assembly, includeInternalTypes: true);
 
         services.AddScoped<IRequestDispatcher, RequestDispatcher>();
         services.AddScoped(typeof(IPipelineBehavior<,>), typeof(ValidationBehavior<,>));

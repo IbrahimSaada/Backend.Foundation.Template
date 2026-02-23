@@ -1,4 +1,4 @@
-﻿using Backend.Foundation.Template.Domain.Todos.Entities;
+﻿using Backend.Foundation.Template.Domain.Products;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 
@@ -16,7 +16,7 @@ public sealed class AppDbContext : DbContext
     {
     }
 
-    public DbSet<TodoItem> TodoItems => Set<TodoItem>();
+    public DbSet<Product> Products => Set<Product>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
