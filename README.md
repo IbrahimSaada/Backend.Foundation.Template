@@ -5,6 +5,7 @@ Clean Architecture .NET backend template focused on reusable structure, strict l
 ## Documentation
 Architecture and usage guide:
 - `docs/ARCHITECTURE_GUIDE.md`
+  - includes Keycloak setup flow (bootstrap admin hardening, realm/client/roles/users, backend config, smoke tests)
 
 ## Projects
 - `Backend.Foundation.Template` - Host/API
@@ -28,6 +29,20 @@ dotnet ef database update \
 ```bash
 dotnet run --project Backend.Foundation.Template
 ```
+
+## Local Keycloak (Reusable)
+- Compose file: `docker/keycloak/docker-compose.yml`
+- Start:
+```bash
+docker compose -f docker/keycloak/docker-compose.yml up -d
+```
+- Stop:
+```bash
+docker compose -f docker/keycloak/docker-compose.yml down
+```
+- Security note:
+  - `KC_BOOTSTRAP_ADMIN_USERNAME` and `KC_BOOTSTRAP_ADMIN_PASSWORD` are only for first startup.
+  - After creating a permanent admin user, remove those two variables and recreate the container.
 
 ## Notes
 - API sample requests are in `Backend.Foundation.Template/Backend.Foundation.Template.http`.

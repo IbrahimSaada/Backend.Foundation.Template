@@ -279,6 +279,79 @@ Usage example (when auth is enabled):
 public async Task<IActionResult> Create(...)
 ```
 
+## 11.1) Keycloak Setup (Local Template Flow)
+
+Use this flow for new projects based on this template.
+
+1. Start Keycloak with the template compose file.
+```bash
+docker compose -f docker/keycloak/docker-compose.yml up -d
+```
+
+2. Open admin console:
+- `http://localhost:8088/admin`
+
+3. Login using bootstrap admin credentials from compose (first run only).
+
+4. Create permanent admin in `master` realm:
+- `Users` -> `Add user`
+- set username/email, enable account
+- set non-temporary password
+
+5. Grant full admin permissions:
+- user -> `Role mapping` -> assign `realm-management` client role `realm-admin`
+
+6. Verify permanent admin in private/incognito session.
+
+7. Delete temporary bootstrap admin user.
+
+8. Remove bootstrap env vars from compose and recreate container:
+- remove `KC_BOOTSTRAP_ADMIN_USERNAME`
+- remove `KC_BOOTSTRAP_ADMIN_PASSWORD`
+- recreate:
+```bash
+docker compose -f docker/keycloak/docker-compose.yml up -d --force-recreate
+```
+
+9. Create application realm:
+- example realm: `foundation-template`
+
+10. Create client for API token testing:
+- client id: `backend-service-client`
+- `Client authentication`: Off (public client)
+- `Direct access grants`: On
+- keep other flows Off for this test setup
+
+11. Create realm roles:
+- `admin`
+- `user`
+
+12. Create users and assign roles:
+- `admin.test` -> role `admin`
+- `user.test` -> role `user`
+
+13. Configure backend (`Backend.Foundation.Template/appsettings.Development.json`):
+- `Authentication:Enabled = true`
+- `Authentication:Authority = http://localhost:8088/realms/foundation-template`
+- `Authentication:RequireHttpsMetadata = false` (local only)
+- `Authentication:ValidateAudience = false` for initial smoke test
+- `AuthorizationMapping:IncludeKeycloakRealmRoles = true`
+- `AuthorizationMapping:IncludeKeycloakClientRoles = false` (recommended first)
+- map role permissions in `AuthorizationMapping:RolePermissions`
+
+14. Token smoke test:
+```bash
+curl -X POST "http://localhost:8088/realms/foundation-template/protocol/openid-connect/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "client_id=backend-service-client&grant_type=password&username=user.test&password=<password>"
+```
+
+15. API smoke test:
+- call `GET /api/system/time` with bearer token from step 14
+- expected:
+  - no token -> `401`
+  - `user.test` token -> `200` (has `system.time.read`)
+
 Future extension path:
 1. add Keycloak adapter configuration
 2. add Redis-backed permission cache + invalidation
