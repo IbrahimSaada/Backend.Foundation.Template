@@ -1,3 +1,4 @@
+using System.Security.Claims;
 using System.Text.Encodings.Web;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.Extensions.Options;
@@ -18,7 +19,19 @@ internal sealed class NoAuthAuthenticationHandler : AuthenticationHandler<Authen
 
     protected override Task<AuthenticateResult> HandleAuthenticateAsync()
     {
-        return Task.FromResult(AuthenticateResult.NoResult());
+        var claims = new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, "dev-user"),
+            new Claim(ClaimTypes.Name, "dev-user"),
+            new Claim(ClaimTypes.Role, "admin"),
+            new Claim("permission", "*")
+        };
+
+        var identity = new ClaimsIdentity(claims, SchemeName);
+        var principal = new ClaimsPrincipal(identity);
+        var ticket = new AuthenticationTicket(principal, SchemeName);
+
+        return Task.FromResult(AuthenticateResult.Success(ticket));
     }
 
     protected override Task HandleChallengeAsync(AuthenticationProperties properties)

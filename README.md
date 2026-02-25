@@ -33,6 +33,7 @@ dotnet run --project Backend.Foundation.Template
 
 ## Local Keycloak (Reusable)
 - Compose file: `docker/keycloak/docker-compose.yml`
+- Linux portability is included via `extra_hosts: host.docker.internal:host-gateway`.
 - Start:
 ```bash
 docker compose -f docker/keycloak/docker-compose.yml up -d
@@ -66,4 +67,5 @@ docker compose -f docker/redis/docker-compose.yml down
 
 ## Notes
 - API sample requests are in `Backend.Foundation.Template/Backend.Foundation.Template.http`.
+- In `Authentication:Enabled=false`, template uses an authenticated dev principal for local DX.
 - Global architecture rules and workflow diagrams are in `docs/ARCHITECTURE_GUIDE.md`.

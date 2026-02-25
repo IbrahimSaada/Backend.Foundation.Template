@@ -116,6 +116,11 @@ internal sealed class HttpContextCurrentUser : ICurrentUser
 
                 foreach (var roleNode in rolesNode.EnumerateArray())
                 {
+                    if (roleNode.ValueKind != JsonValueKind.String)
+                    {
+                        continue;
+                    }
+
                     var role = roleNode.GetString();
                     if (!string.IsNullOrWhiteSpace(role))
                     {
@@ -123,7 +128,7 @@ internal sealed class HttpContextCurrentUser : ICurrentUser
                     }
                 }
             }
-            catch (JsonException ex)
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 _logger.LogWarning(ex, "Failed to parse realm_access roles claim.");
             }
@@ -178,6 +183,11 @@ internal sealed class HttpContextCurrentUser : ICurrentUser
 
                     foreach (var roleNode in rolesNode.EnumerateArray())
                     {
+                        if (roleNode.ValueKind != JsonValueKind.String)
+                        {
+                            continue;
+                        }
+
                         var role = roleNode.GetString();
                         if (!string.IsNullOrWhiteSpace(role))
                         {
@@ -186,7 +196,7 @@ internal sealed class HttpContextCurrentUser : ICurrentUser
                     }
                 }
             }
-            catch (JsonException ex)
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 _logger.LogWarning(ex, "Failed to parse resource_access roles claim.");
             }
@@ -253,6 +263,11 @@ internal sealed class HttpContextCurrentUser : ICurrentUser
                 {
                     foreach (var item in document.RootElement.EnumerateArray())
                     {
+                        if (item.ValueKind != JsonValueKind.String)
+                        {
+                            continue;
+                        }
+
                         var parsed = item.GetString();
                         if (!string.IsNullOrWhiteSpace(parsed))
                         {
@@ -263,7 +278,7 @@ internal sealed class HttpContextCurrentUser : ICurrentUser
                     return;
                 }
             }
-            catch (JsonException)
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 // Fall through and treat as normal delimited string.
             }

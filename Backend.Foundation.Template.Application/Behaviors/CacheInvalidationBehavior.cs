@@ -2,6 +2,7 @@ using Backend.Foundation.Template.Abstractions.Caching;
 using Backend.Foundation.Template.Abstractions.Results;
 using Backend.Foundation.Template.Application.Contracts.Caching;
 using Backend.Foundation.Template.Application.Contracts.Requests;
+using Microsoft.Extensions.Logging;
 
 namespace Backend.Foundation.Template.Application.Behaviors;
 
@@ -10,13 +11,16 @@ public sealed class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBe
 {
     private readonly ICacheStore _cacheStore;
     private readonly ICacheKeyFactory _cacheKeyFactory;
+    private readonly ILogger<CacheInvalidationBehavior<TRequest, TResponse>> _logger;
 
     public CacheInvalidationBehavior(
         ICacheStore cacheStore,
-        ICacheKeyFactory cacheKeyFactory)
+        ICacheKeyFactory cacheKeyFactory,
+        ILogger<CacheInvalidationBehavior<TRequest, TResponse>> logger)
     {
         _cacheStore = cacheStore;
         _cacheKeyFactory = cacheKeyFactory;
+        _logger = logger;
     }
 
     public async Task<Result<TResponse>> Handle(
@@ -47,8 +51,20 @@ public sealed class CacheInvalidationBehavior<TRequest, TResponse> : IPipelineBe
 
         foreach (var item in distinctItems)
         {
-            var cacheKey = _cacheKeyFactory.Create(item.Category, item.Key);
-            await _cacheStore.RemoveAsync(cacheKey, ct);
+            string? cacheKey = null;
+            try
+            {
+                cacheKey = _cacheKeyFactory.Create(item.Category, item.Key);
+                await _cacheStore.RemoveAsync(cacheKey, ct);
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                _logger.LogError(
+                    ex,
+                    "Cache invalidation failed for {RequestType} with key {CacheKey}. Command result remains successful.",
+                    typeof(TRequest).Name,
+                    cacheKey ?? "(unresolved)");
+            }
         }
 
         return result;

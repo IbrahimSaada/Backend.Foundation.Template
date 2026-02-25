@@ -2,6 +2,7 @@ using Backend.Foundation.Template.Abstractions.Caching;
 using Backend.Foundation.Template.Abstractions.Results;
 using Backend.Foundation.Template.Application.Contracts.Caching;
 using Backend.Foundation.Template.Application.Contracts.Requests;
+using Microsoft.Extensions.Logging;
 
 namespace Backend.Foundation.Template.Application.Behaviors;
 
@@ -10,13 +11,16 @@ public sealed class QueryCachingBehavior<TRequest, TResponse> : IPipelineBehavio
 {
     private readonly ICacheStore _cacheStore;
     private readonly ICacheKeyFactory _cacheKeyFactory;
+    private readonly ILogger<QueryCachingBehavior<TRequest, TResponse>> _logger;
 
     public QueryCachingBehavior(
         ICacheStore cacheStore,
-        ICacheKeyFactory cacheKeyFactory)
+        ICacheKeyFactory cacheKeyFactory,
+        ILogger<QueryCachingBehavior<TRequest, TResponse>> logger)
     {
         _cacheStore = cacheStore;
         _cacheKeyFactory = cacheKeyFactory;
+        _logger = logger;
     }
 
     public async Task<Result<TResponse>> Handle(
@@ -30,8 +34,22 @@ public sealed class QueryCachingBehavior<TRequest, TResponse> : IPipelineBehavio
             return await next();
         }
 
-        var cacheKey = _cacheKeyFactory.Create(cacheableQuery.CacheCategory, cacheableQuery.CacheKey);
-        var cached = await _cacheStore.GetAsync<CachedQueryPayload<TResponse>>(cacheKey, ct);
+        string? cacheKey = null;
+        CachedQueryPayload<TResponse>? cached = null;
+        try
+        {
+            cacheKey = _cacheKeyFactory.Create(cacheableQuery.CacheCategory, cacheableQuery.CacheKey);
+            cached = await _cacheStore.GetAsync<CachedQueryPayload<TResponse>>(cacheKey, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Cache read failed for {RequestType} with key {CacheKey}. Continuing without cache.",
+                typeof(TRequest).Name,
+                cacheKey ?? "(unresolved)");
+        }
+
         if (cached is not null)
         {
             return Result<TResponse>.Success(cached.Value);
@@ -48,11 +66,23 @@ public sealed class QueryCachingBehavior<TRequest, TResponse> : IPipelineBehavio
             AbsoluteExpirationRelativeToNow = cacheableQuery.AbsoluteExpirationRelativeToNow
         };
 
-        await _cacheStore.SetAsync(
-            cacheKey,
-            new CachedQueryPayload<TResponse>(result.Value),
-            cacheEntryOptions,
-            ct);
+        try
+        {
+            cacheKey ??= _cacheKeyFactory.Create(cacheableQuery.CacheCategory, cacheableQuery.CacheKey);
+            await _cacheStore.SetAsync(
+                cacheKey,
+                new CachedQueryPayload<TResponse>(result.Value),
+                cacheEntryOptions,
+                ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(
+                ex,
+                "Cache write failed for {RequestType} with key {CacheKey}. Response will continue.",
+                typeof(TRequest).Name,
+                cacheKey ?? "(unresolved)");
+        }
 
         return result;
     }

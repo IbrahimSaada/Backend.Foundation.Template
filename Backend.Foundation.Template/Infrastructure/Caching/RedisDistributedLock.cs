@@ -6,10 +6,14 @@ namespace Backend.Foundation.Template.Infrastructure.Caching;
 internal sealed class RedisDistributedLock : IDistributedLock
 {
     private readonly IConnectionMultiplexer _connectionMultiplexer;
+    private readonly ICacheKeyFactory _cacheKeyFactory;
 
-    public RedisDistributedLock(IConnectionMultiplexer connectionMultiplexer)
+    public RedisDistributedLock(
+        IConnectionMultiplexer connectionMultiplexer,
+        ICacheKeyFactory cacheKeyFactory)
     {
         _connectionMultiplexer = connectionMultiplexer;
+        _cacheKeyFactory = cacheKeyFactory;
     }
 
     public async Task<IAsyncDisposable?> TryAcquireAsync(
@@ -30,9 +34,10 @@ internal sealed class RedisDistributedLock : IDistributedLock
         ct.ThrowIfCancellationRequested();
 
         var token = Guid.NewGuid().ToString("N");
+        var storageKey = _cacheKeyFactory.Create(CacheCategories.Lock, key);
         var db = _connectionMultiplexer.GetDatabase();
         var acquired = await db.StringSetAsync(
-                key,
+                storageKey,
                 token,
                 leaseTime,
                 when: When.NotExists)
@@ -43,7 +48,7 @@ internal sealed class RedisDistributedLock : IDistributedLock
             return null;
         }
 
-        return new RedisDistributedLockHandle(db, key, token);
+        return new RedisDistributedLockHandle(db, storageKey, token);
     }
 
     private sealed class RedisDistributedLockHandle : IAsyncDisposable

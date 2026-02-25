@@ -27,7 +27,7 @@ internal static class CachingServiceCollectionExtensions
             services.AddSingleton<ICacheSerializer, SystemTextJsonCacheSerializer>();
             services.AddSingleton<ICacheStore, NoOpCacheStore>();
             services.AddSingleton<IDistributedLock, NoOpDistributedLock>();
-            services.AddSingleton<IIdempotencyStore, NoOpIdempotencyStore>();
+            services.AddSingleton<IIdempotencyStore, InMemoryIdempotencyStore>();
             services.AddHealthChecks().AddCheck(
                 "redis",
                 () => HealthCheckResult.Healthy("Redis is disabled."),

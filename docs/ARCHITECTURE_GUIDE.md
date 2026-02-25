@@ -261,6 +261,8 @@ Key design points:
 - no Keycloak types in `Application` or `Domain`
 - permissions are the authorization unit (roles can map to permissions)
 - Keycloak-specific role shape (`realm_access.roles`) is handled in API mapping, not business logic
+- when `Authentication:Enabled=false`, template uses a local authenticated dev principal
+  with wildcard permission (`*`) for smoother first-run DX
 
 Config sections:
 - `Authentication`
@@ -287,6 +289,7 @@ Use this flow for new projects based on this template.
 ```bash
 docker compose -f docker/keycloak/docker-compose.yml up -d
 ```
+- compose includes `extra_hosts: host.docker.internal:host-gateway` for Linux portability
 
 2. Open admin console:
 - `http://localhost:8088/admin`
@@ -372,7 +375,7 @@ Infrastructure implementations (`Backend.Foundation.Template/Infrastructure/Cach
 - Fallback when Redis disabled:
   - `NoOpCacheStore`
   - `NoOpDistributedLock`
-  - `NoOpIdempotencyStore`
+  - `InMemoryIdempotencyStore`
 
 Config section (`Redis`):
 - `Enabled`
@@ -386,6 +389,8 @@ Registration:
 - Health endpoints:
   - `GET /health/live`
   - `GET /health/ready`
+  - `/health/live` runs only `live` checks (process health)
+  - `/health/ready` runs only `ready` checks (external dependencies)
 
 Local Redis compose:
 - `docker/redis/docker-compose.yml`
@@ -427,6 +432,8 @@ Pipeline order:
 Important behavior detail:
 - invalidation runs outside unit-of-work commit block because `CacheInvalidationBehavior` wraps `UnitOfWorkBehavior`.
 - this means cache is cleared only after commit-success path returns.
+- cache read/write failures in query behavior are fail-open (request continues).
+- cache invalidation failures after successful commands are best-effort (logged, response not failed).
 
 Usage example:
 ```csharp

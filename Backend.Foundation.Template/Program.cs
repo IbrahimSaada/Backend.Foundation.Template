@@ -5,6 +5,8 @@ using Backend.Foundation.Template.Infrastructure;
 using Backend.Foundation.Template.Infrastructure.Caching;
 using Backend.Foundation.Template.Persistence;
 using Backend.Foundation.Template.Security.DependencyInjection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -48,6 +50,10 @@ builder.Services.AddSwaggerGen(options =>
 builder.Services.AddApplication();
 builder.Services.AddTemplateSecurity(builder.Configuration);
 builder.Services.AddTemplateCaching(builder.Configuration);
+builder.Services.AddHealthChecks().AddCheck(
+    "self",
+    () => HealthCheckResult.Healthy("Process is alive."),
+    tags: new[] { "live" });
 
 // Fallback infrastructure so template runs even when persistence provider is not configured yet.
 builder.Services.AddSingleton<IClock, SystemClock>();
@@ -71,8 +77,18 @@ if (app.Environment.IsDevelopment())
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
-app.MapHealthChecks("/health/live");
-app.MapHealthChecks("/health/ready");
+app.MapHealthChecks(
+    "/health/live",
+    new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("live")
+    });
+app.MapHealthChecks(
+    "/health/ready",
+    new HealthCheckOptions
+    {
+        Predicate = registration => registration.Tags.Contains("ready")
+    });
 app.MapControllers();
 
 app.Run();
