@@ -3,6 +3,8 @@ using Backend.Foundation.Template.Abstractions.Persistence;
 using Backend.Foundation.Template.Application;
 using Backend.Foundation.Template.Infrastructure;
 using Backend.Foundation.Template.Infrastructure.Caching;
+using Backend.Foundation.Template.Infrastructure.Messaging;
+using Backend.Foundation.Template.Infrastructure.Observability;
 using Backend.Foundation.Template.Persistence;
 using Backend.Foundation.Template.Security.DependencyInjection;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -48,8 +50,10 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 builder.Services.AddApplication();
+builder.Services.AddTemplateObservability();
 builder.Services.AddTemplateSecurity(builder.Configuration);
 builder.Services.AddTemplateCaching(builder.Configuration);
+builder.Services.AddTemplateMessaging(builder.Configuration);
 builder.Services.AddHealthChecks().AddCheck(
     "self",
     () => HealthCheckResult.Healthy("Process is alive."),
@@ -64,6 +68,7 @@ ConfigurePersistence(builder);
 var app = builder.Build();
 
 app.UseGlobalExceptionHandling(app.Environment.IsDevelopment());
+app.UseTemplateCorrelationId();
 
 if (app.Environment.IsDevelopment())
 {

@@ -465,6 +465,84 @@ Concrete sample in template:
   - invalidates `query:system.time.utc`
   - requires permission `system.time.cache.invalidate`
 
+## 11.4) Messaging + Outbox (Phase 1/2)
+
+The template now supports outbox + optional transport with provider-based wiring.
+
+Abstractions (`Backend.Foundation.Template.Abstractions/Messaging`):
+- `IIntegrationEvent`
+- `IntegrationEventBase`
+- `IIntegrationEventPublisher`
+- `IMessageBus`
+- `IIntegrationEventConsumer<T>`
+- `IOutboxSerializer`
+- `IOutboxStore`
+- outbox DTOs/status contracts
+
+Host infrastructure (`Backend.Foundation.Template/Infrastructure/Messaging`):
+- `OutboxIntegrationEventPublisher`
+- `SystemTextJsonOutboxSerializer`
+- `OutboxDispatcherHostedService` (claims outbox rows and dispatches through `IMessageBus`)
+- `RabbitMqConsumerHostedService` (optional queue consumer with idempotency + DLQ flow)
+- `NoOpMessageBus` (`Messaging:Provider=None`)
+- `RabbitMqMessageBus` (`Messaging:Provider=RabbitMq`)
+- fallback `NoOpOutboxStore` when persistence provider does not register a concrete store
+
+Persistence implementation (`Backend.Foundation.Template.Persistence/Outbox`):
+- `OutboxMessageEntity`
+- `OutboxMessageEntityConfiguration`
+- `EfOutboxStore`
+- migration creating `OutboxMessages` table and indexes
+
+Config:
+- `Messaging:Provider` (`None | RabbitMq`)
+- `Messaging:RabbitMq`
+  - `HostName`, `Port`, `VirtualHost`, `UserName`, `Password`
+  - `ExchangeName`, `ExchangeType`, `DefaultRoutingKey`
+  - `ClientProvidedName`, `AutomaticRecoveryEnabled`, `NetworkRecoveryIntervalSeconds`
+  - `ConsumerEnabled`, `ConsumerQueueName`, `ConsumerRoutingKeys`, `ConsumerPrefetchCount`
+  - `ConsumerIdempotencyTtlHours`
+  - `DeadLetterExchangeName`, `DeadLetterQueueName`, `DeadLetterRoutingKey`
+- `Messaging:Outbox`
+- `Enabled`
+- `BatchSize`
+- `PollIntervalSeconds`
+- `LockTimeoutSeconds`
+- `MaxRetryCount`
+- `BaseBackoffSeconds`
+- `MaxErrorLength`
+
+Current delivery semantics:
+- command handlers publish integration events through `IIntegrationEventPublisher`
+- events are written into outbox within command transaction/UoW commit flow
+- hosted dispatcher claims rows, dispatches through `IMessageBus`, and marks success/failure with retry metadata
+- with `Provider=None`, dispatch is intentionally no-op (template/dev mode)
+- with `Provider=RabbitMq`, messages are published to configured exchange
+- delivery semantic is **at-least-once** (design consumers for idempotency)
+- `/health/ready` includes RabbitMQ health (connect + passive exchange check) when provider is RabbitMq
+
+Consumer baseline semantics:
+- when `Messaging:RabbitMq:ConsumerEnabled=true`, template starts `RabbitMqConsumerHostedService`
+- consumer deserializes by `BasicProperties.Type` and dispatches to `IIntegrationEventConsumer<T>`
+- idempotency key priority:
+  - `integrationEvent.IdempotencyKey`
+  - `BasicProperties.MessageId`
+  - fallback `event:{messageType}:{eventId}`
+- duplicate completed messages are acknowledged and skipped
+- unhandled/failed messages are `Nack(requeue:false)` and routed to dead-letter queue via DLX config
+
+## 11.5) Correlation Id Flow
+
+The template includes correlation id propagation for HTTP and messaging:
+- middleware header name: `X-Correlation-Id`
+- if client provides a valid value, it is reused
+- if absent/invalid, a new id is generated
+- value is written to `HttpContext.TraceIdentifier`
+- value is returned in response headers
+- `OutboxIntegrationEventPublisher` uses this value as fallback correlation id for outgoing integration events
+- `RabbitMqMessageBus` writes correlation metadata to AMQP properties/headers
+- `RabbitMqConsumerHostedService` reads correlation metadata and opens a logging scope per message
+
 ## 12) Current API Surface
 
 System:

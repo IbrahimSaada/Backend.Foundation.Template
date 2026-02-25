@@ -1,6 +1,8 @@
-﻿using Backend.Foundation.Template.GenericRepo.Ef;
+using Backend.Foundation.Template.Abstractions.Messaging;
+using Backend.Foundation.Template.GenericRepo.Ef;
 using Backend.Foundation.Template.GenericRepo.Mongo;
 using Backend.Foundation.Template.Persistence.Configuration;
+using Backend.Foundation.Template.Persistence.Outbox;
 using Backend.Foundation.Template.Persistence.Sql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -53,6 +55,7 @@ public static class DependencyInjection
         });
 
         services.AddGenericEfRepositories<AppDbContext>();
+        services.AddScoped<IOutboxStore, EfOutboxStore>();
 
         return services;
     }
@@ -99,6 +102,7 @@ public static class DependencyInjection
         });
 
         services.AddGenericEfRepositories<AppDbContext>();
+        services.AddScoped<IOutboxStore, EfOutboxStore>();
 
         return services;
     }

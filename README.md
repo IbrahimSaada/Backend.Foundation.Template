@@ -7,6 +7,7 @@ Architecture and usage guide:
 - `docs/ARCHITECTURE_GUIDE.md`
   - includes Keycloak setup flow (bootstrap admin hardening, realm/client/roles/users, backend config, smoke tests)
   - includes Redis phase 1/2 (infrastructure foundation + application query caching/invalidation pipeline)
+  - includes Messaging/Outbox phase 1/2 (durable outbox + optional RabbitMQ transport)
 
 ## Projects
 - `Backend.Foundation.Template` - Host/API
@@ -60,10 +61,36 @@ docker compose -f docker/redis/docker-compose.yml down
   - enable Redis in `Backend.Foundation.Template/appsettings.*.json` with the `Redis` section.
   - default local connection string is `localhost:6379`.
 
+## Local RabbitMQ (Optional Transport)
+- Compose file: `docker/rabbitmq/docker-compose.yml`
+- Start:
+```bash
+docker compose -f docker/rabbitmq/docker-compose.yml up -d
+```
+- Stop:
+```bash
+docker compose -f docker/rabbitmq/docker-compose.yml down
+```
+- RabbitMQ UI:
+  - `http://localhost:15672`
+  - default local credentials in compose: `guest / guest`
+- App config:
+  - set `Messaging:Provider` to `RabbitMq`
+  - configure `Messaging:RabbitMq` section in `Backend.Foundation.Template/appsettings.*.json`
+  - set `Messaging:RabbitMq:ConsumerEnabled=true` to run queue consumer worker
+  - consumer uses idempotency store and dead-letter settings from `Messaging:RabbitMq`
+
 ## Health Endpoints
 - Liveness: `GET /health/live`
 - Readiness: `GET /health/ready`
 - Redis readiness is part of `/health/ready` when Redis is enabled.
+- RabbitMQ readiness is part of `/health/ready` when `Messaging:Provider=RabbitMq`.
+
+## Correlation Id
+- Request/response correlation header: `X-Correlation-Id`
+- If client sends it, template reuses it (validated).
+- If missing, template generates one and returns it in response headers.
+- Outbox/RabbitMQ publishing propagates the same correlation id.
 
 ## Notes
 - API sample requests are in `Backend.Foundation.Template/Backend.Foundation.Template.http`.

@@ -1,5 +1,6 @@
-﻿using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
+using Backend.Foundation.Template.Persistence.Outbox;
 
 namespace Backend.Foundation.Template.Persistence.Sql;
 
@@ -15,6 +16,7 @@ public sealed class AppDbContext : DbContext
     {
     }
 
+    internal DbSet<OutboxMessageEntity> OutboxMessages => Set<OutboxMessageEntity>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -148,3 +150,4 @@ internal static class EntityEntryExtensions
         return property is null ? null : entry.Property(propertyName);
     }
 }
+
