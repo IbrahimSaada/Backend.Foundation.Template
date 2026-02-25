@@ -69,6 +69,20 @@ internal sealed class RedisIdempotencyStore : IIdempotencyStore
         return string.Equals(record?.Status, "completed", StringComparison.OrdinalIgnoreCase);
     }
 
+    public async Task ReleaseAsync(string key, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentException("Idempotency key is required.", nameof(key));
+        }
+
+        ct.ThrowIfCancellationRequested();
+
+        var db = _connectionMultiplexer.GetDatabase();
+        var storageKey = BuildStorageKey(key);
+        await db.KeyDeleteAsync(storageKey).ConfigureAwait(false);
+    }
+
     private string BuildStorageKey(string key)
     {
         return _cacheKeyFactory.Create(CacheCategories.Idempotency, key);

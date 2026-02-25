@@ -7,4 +7,6 @@ public interface IIdempotencyStore
     Task MarkCompletedAsync(string key, TimeSpan ttl, CancellationToken ct = default);
 
     Task<bool> IsCompletedAsync(string key, CancellationToken ct = default);
+
+    Task ReleaseAsync(string key, CancellationToken ct = default);
 }

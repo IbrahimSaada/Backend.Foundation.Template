@@ -20,8 +20,34 @@ internal static class SecurityServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        services.Configure<TemplateAuthenticationOptions>(configuration.GetSection(TemplateAuthenticationOptions.SectionName));
-        services.Configure<AuthorizationMappingOptions>(configuration.GetSection(AuthorizationMappingOptions.SectionName));
+        services.AddOptions<TemplateAuthenticationOptions>()
+            .Bind(configuration.GetSection(TemplateAuthenticationOptions.SectionName))
+            .Validate(
+                options => !options.Enabled || !string.IsNullOrWhiteSpace(options.Authority),
+                "Authentication:Authority is required when Authentication:Enabled=true.")
+            .Validate(
+                options =>
+                    !options.Enabled ||
+                    !options.ValidateAudience ||
+                    options.Audiences.Any(x => !string.IsNullOrWhiteSpace(x)),
+                "Authentication:Audiences must include at least one value when audience validation is enabled.")
+            .Validate(
+                options => options.ClockSkewSeconds >= 0,
+                "Authentication:ClockSkewSeconds must be >= 0.")
+            .ValidateOnStart();
+
+        services.AddOptions<AuthorizationMappingOptions>()
+            .Bind(configuration.GetSection(AuthorizationMappingOptions.SectionName))
+            .Validate(
+                options => !string.IsNullOrWhiteSpace(options.KeycloakRealmAccessClaimType),
+                "AuthorizationMapping:KeycloakRealmAccessClaimType is required.")
+            .Validate(
+                options => !string.IsNullOrWhiteSpace(options.KeycloakResourceAccessClaimType),
+                "AuthorizationMapping:KeycloakResourceAccessClaimType is required.")
+            .Validate(
+                options => options.RoleClaimTypes.Count > 0,
+                "AuthorizationMapping:RoleClaimTypes must contain at least one value.")
+            .ValidateOnStart();
 
         services.AddHttpContextAccessor();
         services.AddScoped<ICurrentUser, HttpContextCurrentUser>();

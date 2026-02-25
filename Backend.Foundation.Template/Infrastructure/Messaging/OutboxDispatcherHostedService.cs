@@ -111,11 +111,12 @@ internal sealed class OutboxDispatcherHostedService : BackgroundService
                 var moveToPoison = nextRetry >= _options.MaxRetryCount;
                 var backoffSeconds = CalculateBackoffSeconds(nextRetry);
                 var nextAvailableAtUtc = _clock.UtcNow.AddSeconds(backoffSeconds);
+                var safeError = BuildSafeError(ex);
 
                 await outboxStore.MarkFailedAsync(
                     messageId: message.MessageId,
                     lockId: lockId,
-                    error: ex.Message,
+                    error: safeError,
                     nextAvailableAtUtc: nextAvailableAtUtc,
                     moveToPoison: moveToPoison,
                     ct: ct);
@@ -139,6 +140,18 @@ internal sealed class OutboxDispatcherHostedService : BackgroundService
         return baseSeconds * (1 << exponent);
     }
 
+    private string BuildSafeError(Exception ex)
+    {
+        var rawError = ex.ToString();
+        if (string.IsNullOrWhiteSpace(rawError))
+        {
+            return "Outbox dispatch failed.";
+        }
+
+        var maxLength = Math.Max(1, _options.MaxErrorLength);
+        return rawError[..Math.Min(rawError.Length, maxLength)];
+    }
+
     private static void ValidateOptions(OutboxDispatcherOptions options)
     {
         if (options.BatchSize <= 0)
@@ -159,6 +172,11 @@ internal sealed class OutboxDispatcherHostedService : BackgroundService
         if (options.MaxRetryCount <= 0)
         {
             throw new InvalidOperationException("Messaging:Outbox:MaxRetryCount must be greater than zero.");
+        }
+
+        if (options.MaxErrorLength <= 0)
+        {
+            throw new InvalidOperationException("Messaging:Outbox:MaxErrorLength must be greater than zero.");
         }
     }
 }

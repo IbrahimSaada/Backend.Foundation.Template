@@ -520,6 +520,11 @@ Current delivery semantics:
 - with `Provider=RabbitMq`, messages are published to configured exchange
 - delivery semantic is **at-least-once** (design consumers for idempotency)
 - `/health/ready` includes RabbitMQ health (connect + passive exchange check) when provider is RabbitMq
+- RabbitMQ publishing uses publisher confirms by default; outbox messages are marked successful only after broker confirm
+- startup validation is fail-fast for invalid combinations:
+  - `Provider=RabbitMq` requires `Outbox:Enabled=true`
+  - `Provider=RabbitMq` requires SQL persistence provider (`Postgres` or `SqlServer`)
+  - `RabbitMq:ConsumerEnabled=true` requires `Provider=RabbitMq`
 
 Consumer baseline semantics:
 - when `Messaging:RabbitMq:ConsumerEnabled=true`, template starts `RabbitMqConsumerHostedService`

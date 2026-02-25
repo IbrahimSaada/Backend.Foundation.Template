@@ -79,6 +79,10 @@ docker compose -f docker/rabbitmq/docker-compose.yml down
   - configure `Messaging:RabbitMq` section in `Backend.Foundation.Template/appsettings.*.json`
   - set `Messaging:RabbitMq:ConsumerEnabled=true` to run queue consumer worker
   - consumer uses idempotency store and dead-letter settings from `Messaging:RabbitMq`
+  - publisher confirms are enabled by default (`PublisherConfirmsEnabled=true`) so outbox marks success only after broker ack
+  - fail-fast guardrails:
+    - `Messaging:Provider=RabbitMq` requires SQL persistence (`Postgres` or `SqlServer`)
+    - `Messaging:Provider=RabbitMq` requires `Messaging:Outbox:Enabled=true`
 
 ## Health Endpoints
 - Liveness: `GET /health/live`

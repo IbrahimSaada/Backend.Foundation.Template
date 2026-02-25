@@ -15,9 +15,9 @@ internal sealed class RabbitMqMessageBus : IMessageBus, IDisposable
     private readonly ILogger<RabbitMqMessageBus> _logger;
     private readonly ConnectionFactory _factory;
     private readonly object _sync = new();
+    private readonly TimeSpan _publisherConfirmTimeout;
 
     private IConnection? _connection;
-    private IModel? _channel;
 
     public RabbitMqMessageBus(
         IOptions<RabbitMqOptions> options,
@@ -27,6 +27,7 @@ internal sealed class RabbitMqMessageBus : IMessageBus, IDisposable
         _logger = logger;
 
         ValidateOptions(_options);
+        _publisherConfirmTimeout = TimeSpan.FromSeconds(Math.Max(1, _options.PublisherConfirmTimeoutSeconds));
 
         _factory = new ConnectionFactory
         {
@@ -58,8 +59,18 @@ internal sealed class RabbitMqMessageBus : IMessageBus, IDisposable
         ArgumentException.ThrowIfNullOrWhiteSpace(payload);
         ct.ThrowIfCancellationRequested();
 
-        EnsureConnection();
-        var channel = _channel ?? throw new InvalidOperationException("RabbitMQ channel is not initialized.");
+        var connection = EnsureConnection();
+        using var channel = connection.CreateModel();
+        channel.ExchangeDeclare(
+            exchange: _options.ExchangeName,
+            type: _options.ExchangeType,
+            durable: true,
+            autoDelete: false);
+
+        if (_options.PublisherConfirmsEnabled)
+        {
+            channel.ConfirmSelect();
+        }
 
         var properties = channel.CreateBasicProperties();
         properties.Persistent = true;
@@ -106,6 +117,11 @@ internal sealed class RabbitMqMessageBus : IMessageBus, IDisposable
             basicProperties: properties,
             body: body);
 
+        if (_options.PublisherConfirmsEnabled)
+        {
+            channel.WaitForConfirmsOrDie(_publisherConfirmTimeout);
+        }
+
         return Task.CompletedTask;
     }
 
@@ -117,31 +133,25 @@ internal sealed class RabbitMqMessageBus : IMessageBus, IDisposable
         }
     }
 
-    private void EnsureConnection()
+    private IConnection EnsureConnection()
     {
         lock (_sync)
         {
-            if (_connection?.IsOpen == true && _channel?.IsOpen == true)
+            if (_connection?.IsOpen == true)
             {
-                return;
+                return _connection;
             }
 
             DisposeUnsafe();
 
             _connection = _factory.CreateConnection();
-            _channel = _connection.CreateModel();
-
-            _channel.ExchangeDeclare(
-                exchange: _options.ExchangeName,
-                type: _options.ExchangeType,
-                durable: true,
-                autoDelete: false);
 
             _logger.LogInformation(
-                "RabbitMQ message bus connected to {Host}:{Port}, exchange {Exchange}.",
+                "RabbitMQ message bus connected to {Host}:{Port}.",
                 _options.HostName,
-                _options.Port,
-                _options.ExchangeName);
+                _options.Port);
+
+            return _connection;
         }
     }
 
@@ -158,19 +168,6 @@ internal sealed class RabbitMqMessageBus : IMessageBus, IDisposable
 
     private void DisposeUnsafe()
     {
-        try
-        {
-            _channel?.Close();
-        }
-        catch
-        {
-        }
-        finally
-        {
-            _channel?.Dispose();
-            _channel = null;
-        }
-
         try
         {
             _connection?.Close();
@@ -205,6 +202,12 @@ internal sealed class RabbitMqMessageBus : IMessageBus, IDisposable
         if (string.IsNullOrWhiteSpace(options.ExchangeType))
         {
             throw new InvalidOperationException("Messaging:RabbitMq:ExchangeType is required.");
+        }
+
+        if (options.PublisherConfirmsEnabled && options.PublisherConfirmTimeoutSeconds <= 0)
+        {
+            throw new InvalidOperationException(
+                "Messaging:RabbitMq:PublisherConfirmTimeoutSeconds must be greater than zero when publisher confirms are enabled.");
         }
     }
 }

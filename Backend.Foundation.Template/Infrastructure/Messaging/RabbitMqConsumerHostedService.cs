@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Backend.Foundation.Template.Abstractions.Caching;
 using Backend.Foundation.Template.Abstractions.Messaging;
+using Backend.Foundation.Template.Infrastructure.Caching;
 using Microsoft.Extensions.Options;
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
@@ -18,10 +19,12 @@ internal sealed class RabbitMqConsumerHostedService : BackgroundService
     private readonly IIdempotencyStore _idempotencyStore;
     private readonly ILogger<RabbitMqConsumerHostedService> _logger;
     private readonly object _sync = new();
+    private readonly SemaphoreSlim _processingGate = new(1, 1);
 
     private IConnection? _connection;
     private IModel? _channel;
     private string? _consumerTag;
+    private CancellationToken _serviceStoppingToken;
 
     public RabbitMqConsumerHostedService(
         IOptions<MessagingOptions> messagingOptions,
@@ -39,6 +42,8 @@ internal sealed class RabbitMqConsumerHostedService : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _serviceStoppingToken = stoppingToken;
+
         if (!string.Equals(_messagingOptions.Value.Provider, "RabbitMq", StringComparison.OrdinalIgnoreCase))
         {
             _logger.LogInformation("RabbitMQ consumer is disabled because Messaging:Provider is not RabbitMq.");
@@ -49,6 +54,14 @@ internal sealed class RabbitMqConsumerHostedService : BackgroundService
         {
             _logger.LogInformation("RabbitMQ consumer is disabled (Messaging:RabbitMq:ConsumerEnabled=false).");
             return;
+        }
+
+        if (_idempotencyStore is InMemoryIdempotencyStore or NoOpIdempotencyStore)
+        {
+            _logger.LogWarning(
+                "RabbitMQ consumer is using non-distributed idempotency store ({StoreType}). " +
+                "This is suitable for local/dev only and is not safe for multi-instance processing.",
+                _idempotencyStore.GetType().Name);
         }
 
         ValidateOptions(_options);
@@ -108,96 +121,136 @@ internal sealed class RabbitMqConsumerHostedService : BackgroundService
             DisposeUnsafe();
         }
 
+        _processingGate.Dispose();
         base.Dispose();
     }
 
     private async Task HandleMessageAsync(object sender, BasicDeliverEventArgs eventArgs)
     {
-        var channel = _channel;
-        if (channel is null || !channel.IsOpen)
+        try
+        {
+            await _processingGate.WaitAsync(_serviceStoppingToken);
+        }
+        catch (OperationCanceledException)
         {
             return;
         }
 
-        var correlationId =
-            eventArgs.BasicProperties?.CorrelationId ??
-            TryGetHeaderAsString(eventArgs.BasicProperties?.Headers, "x-correlation-id") ??
-            eventArgs.BasicProperties?.MessageId;
-
-        using var logScope = _logger.BeginScope(new Dictionary<string, object?>
-        {
-            ["CorrelationId"] = correlationId,
-            ["MessageId"] = eventArgs.BasicProperties?.MessageId,
-            ["MessageType"] = eventArgs.BasicProperties?.Type
-        });
-
         try
         {
-            var messageType = eventArgs.BasicProperties?.Type;
-            if (string.IsNullOrWhiteSpace(messageType))
+            var channel = _channel;
+            if (channel is null || !channel.IsOpen)
             {
-                _logger.LogWarning("Message received without type. DeliveryTag={DeliveryTag}", eventArgs.DeliveryTag);
-                channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: false);
                 return;
             }
 
-            var eventType = Type.GetType(messageType, throwOnError: false);
-            if (eventType is null || !typeof(IIntegrationEvent).IsAssignableFrom(eventType))
-            {
-                _logger.LogWarning(
-                    "Unsupported integration event type {MessageType}. Message sent to dead-letter queue.",
-                    messageType);
-                channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: false);
-                return;
-            }
+            var correlationId =
+                eventArgs.BasicProperties?.CorrelationId ??
+                TryGetHeaderAsString(eventArgs.BasicProperties?.Headers, "x-correlation-id") ??
+                eventArgs.BasicProperties?.MessageId;
 
-            var payload = Encoding.UTF8.GetString(eventArgs.Body.ToArray());
-            var deserialized = JsonSerializer.Deserialize(payload, eventType, PayloadJsonOptions) as IIntegrationEvent;
-            if (deserialized is null)
+            using var logScope = _logger.BeginScope(new Dictionary<string, object?>
             {
-                _logger.LogWarning(
-                    "Failed to deserialize integration event payload for {MessageType}.",
-                    messageType);
-                channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: false);
-                return;
-            }
+                ["CorrelationId"] = correlationId,
+                ["MessageId"] = eventArgs.BasicProperties?.MessageId,
+                ["MessageType"] = eventArgs.BasicProperties?.Type
+            });
 
-            var idempotencyKey = BuildIdempotencyKey(eventArgs, deserialized, messageType);
-            var idempotencyTtl = TimeSpan.FromHours(Math.Max(1, _options.ConsumerIdempotencyTtlHours));
+            var beganIdempotency = false;
+            var idempotencyKey = string.Empty;
 
-            var began = await _idempotencyStore.TryBeginAsync(idempotencyKey, idempotencyTtl);
-            if (!began)
+            try
             {
-                var completed = await _idempotencyStore.IsCompletedAsync(idempotencyKey);
-                if (completed)
+                var messageType = eventArgs.BasicProperties?.Type;
+                if (string.IsNullOrWhiteSpace(messageType))
                 {
-                    _logger.LogInformation(
-                        "Duplicate message skipped by idempotency key {IdempotencyKey}.",
-                        idempotencyKey);
-                    channel.BasicAck(eventArgs.DeliveryTag, multiple: false);
+                    _logger.LogWarning("Message received without type. DeliveryTag={DeliveryTag}", eventArgs.DeliveryTag);
+                    channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: false);
                     return;
                 }
 
-                _logger.LogWarning(
-                    "Message with idempotency key {IdempotencyKey} is already in progress. Requeueing.",
-                    idempotencyKey);
-                channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: true);
-                return;
+                var eventType = Type.GetType(messageType, throwOnError: false);
+                if (eventType is null || !typeof(IIntegrationEvent).IsAssignableFrom(eventType))
+                {
+                    _logger.LogWarning(
+                        "Unsupported integration event type {MessageType}. Message sent to dead-letter queue.",
+                        messageType);
+                    channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: false);
+                    return;
+                }
+
+                var payload = Encoding.UTF8.GetString(eventArgs.Body.ToArray());
+                var deserialized = JsonSerializer.Deserialize(payload, eventType, PayloadJsonOptions) as IIntegrationEvent;
+                if (deserialized is null)
+                {
+                    _logger.LogWarning(
+                        "Failed to deserialize integration event payload for {MessageType}.",
+                        messageType);
+                    channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: false);
+                    return;
+                }
+
+                idempotencyKey = BuildIdempotencyKey(eventArgs, deserialized, messageType);
+                var idempotencyTtl = TimeSpan.FromHours(Math.Max(1, _options.ConsumerIdempotencyTtlHours));
+
+                var began = await _idempotencyStore.TryBeginAsync(idempotencyKey, idempotencyTtl, _serviceStoppingToken);
+                if (!began)
+                {
+                    var completed = await _idempotencyStore.IsCompletedAsync(idempotencyKey, _serviceStoppingToken);
+                    if (completed)
+                    {
+                        _logger.LogInformation(
+                            "Duplicate message skipped by idempotency key {IdempotencyKey}.",
+                            idempotencyKey);
+                        channel.BasicAck(eventArgs.DeliveryTag, multiple: false);
+                        return;
+                    }
+
+                    _logger.LogWarning(
+                        "Message with idempotency key {IdempotencyKey} is already in progress. Requeueing.",
+                        idempotencyKey);
+                    channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: true);
+                    return;
+                }
+
+                beganIdempotency = true;
+
+                await DispatchToConsumersAsync(eventType, deserialized, _serviceStoppingToken);
+
+                await _idempotencyStore.MarkCompletedAsync(idempotencyKey, idempotencyTtl, _serviceStoppingToken);
+                channel.BasicAck(eventArgs.DeliveryTag, multiple: false);
             }
+            catch (Exception ex)
+            {
+                if (beganIdempotency && !string.IsNullOrWhiteSpace(idempotencyKey))
+                {
+                    try
+                    {
+                        await _idempotencyStore.ReleaseAsync(idempotencyKey);
+                    }
+                    catch (Exception releaseEx)
+                    {
+                        _logger.LogWarning(
+                            releaseEx,
+                            "Failed to release idempotency key {IdempotencyKey} after consumer failure.",
+                            idempotencyKey);
+                    }
+                }
 
-            await DispatchToConsumersAsync(eventType, deserialized);
-
-            await _idempotencyStore.MarkCompletedAsync(idempotencyKey, idempotencyTtl);
-            channel.BasicAck(eventArgs.DeliveryTag, multiple: false);
+                _logger.LogError(ex, "RabbitMQ message handling failed. Message moved to dead-letter queue.");
+                channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: false);
+            }
         }
-        catch (Exception ex)
+        finally
         {
-            _logger.LogError(ex, "RabbitMQ message handling failed. Message moved to dead-letter queue.");
-            channel.BasicNack(eventArgs.DeliveryTag, multiple: false, requeue: false);
+            _processingGate.Release();
         }
     }
 
-    private async Task DispatchToConsumersAsync(Type eventType, IIntegrationEvent integrationEvent)
+    private async Task DispatchToConsumersAsync(
+        Type eventType,
+        IIntegrationEvent integrationEvent,
+        CancellationToken ct)
     {
         using var scope = _scopeFactory.CreateScope();
 
@@ -221,7 +274,7 @@ internal sealed class RabbitMqConsumerHostedService : BackgroundService
 
         foreach (var consumer in consumers)
         {
-            var task = (Task?)consumeMethod.Invoke(consumer, [integrationEvent, CancellationToken.None]);
+            var task = (Task?)consumeMethod.Invoke(consumer, [integrationEvent, ct]);
             if (task is not null)
             {
                 await task;
@@ -380,6 +433,12 @@ internal sealed class RabbitMqConsumerHostedService : BackgroundService
         if (options.ConsumerPrefetchCount == 0)
         {
             throw new InvalidOperationException("Messaging:RabbitMq:ConsumerPrefetchCount must be greater than zero.");
+        }
+
+        if (options.ConsumerPrefetchCount > 1)
+        {
+            throw new InvalidOperationException(
+                "Messaging:RabbitMq:ConsumerPrefetchCount must be 1 for the template consumer baseline.");
         }
 
         if (string.IsNullOrWhiteSpace(options.DeadLetterExchangeName))

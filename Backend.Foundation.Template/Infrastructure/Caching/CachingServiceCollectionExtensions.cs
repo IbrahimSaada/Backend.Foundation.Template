@@ -14,7 +14,19 @@ internal static class CachingServiceCollectionExtensions
         ArgumentNullException.ThrowIfNull(services);
         ArgumentNullException.ThrowIfNull(configuration);
 
-        services.Configure<RedisOptions>(configuration.GetSection(RedisOptions.SectionName));
+        services.AddOptions<RedisOptions>()
+            .Bind(configuration.GetSection(RedisOptions.SectionName))
+            .Validate(
+                options =>
+                    !options.Enabled || !string.IsNullOrWhiteSpace(options.ConnectionString),
+                "Redis:ConnectionString is required when Redis:Enabled=true.")
+            .Validate(
+                options => !options.Enabled || options.DefaultTtlSeconds > 0,
+                "Redis:DefaultTtlSeconds must be greater than zero when Redis:Enabled=true.")
+            .Validate(
+                options => !options.Enabled || options.ConnectTimeoutMs > 0,
+                "Redis:ConnectTimeoutMs must be greater than zero when Redis:Enabled=true.")
+            .ValidateOnStart();
 
         var options = configuration
                           .GetSection(RedisOptions.SectionName)

@@ -18,4 +18,9 @@ internal sealed class NoOpIdempotencyStore : IIdempotencyStore
     {
         return Task.FromResult(false);
     }
+
+    public Task ReleaseAsync(string key, CancellationToken ct = default)
+    {
+        return Task.CompletedTask;
+    }
 }

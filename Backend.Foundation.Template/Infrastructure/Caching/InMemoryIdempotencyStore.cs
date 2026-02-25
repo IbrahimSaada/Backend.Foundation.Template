@@ -85,6 +85,21 @@ internal sealed class InMemoryIdempotencyStore : IIdempotencyStore
         return Task.FromResult(string.Equals(entry.Status, "completed", StringComparison.OrdinalIgnoreCase));
     }
 
+    public Task ReleaseAsync(string key, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(key))
+        {
+            throw new ArgumentException("Idempotency key is required.", nameof(key));
+        }
+
+        ct.ThrowIfCancellationRequested();
+
+        var storageKey = BuildStorageKey(key);
+        _entries.TryRemove(storageKey, out _);
+
+        return Task.CompletedTask;
+    }
+
     private string BuildStorageKey(string key)
     {
         return _cacheKeyFactory.Create(CacheCategories.Idempotency, key);

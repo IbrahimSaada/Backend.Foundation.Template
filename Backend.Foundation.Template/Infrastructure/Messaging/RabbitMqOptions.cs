@@ -26,6 +26,10 @@ internal sealed class RabbitMqOptions
 
     public int NetworkRecoveryIntervalSeconds { get; set; } = 10;
 
+    public bool PublisherConfirmsEnabled { get; set; } = true;
+
+    public int PublisherConfirmTimeoutSeconds { get; set; } = 10;
+
     public bool ConsumerEnabled { get; set; }
 
     public string ConsumerQueueName { get; set; } = "backend.foundation.integration";
